@@ -7,7 +7,6 @@ from flask_cors import CORS
 app = Flask(__name__, static_folder='static')
 CORS(app)
 
-
 @app.route('/')
 def serve_index():
     return send_from_directory(app.static_folder, 'index.html')
@@ -31,17 +30,22 @@ def send_languages():
 
 def preprocess_csv():
     df = pd.read_csv('data.csv')
-    # df['timestamp'] = pd.to_datetime(df['timestamp'])
+
+    # Ensure timestamp is in correct format
     df = df[df['timestamp'].str.contains(r'\d{4}-\d{2}-\d{2}', na=False)]
     df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
     df = df.dropna(subset=['timestamp']) 
+
     max_date = df['timestamp'].max()
     start_date = max_date - pd.DateOffset(years=10)
 
-    df_filtered = df[(df['timestamp'] >= start_date) & (df['timestamp'] <= max_date)]
-    # df_filtered = df.copy()
-    df_filtered['tags'] = df_filtered['tags'].astype(str).fillna('')
+    # ✅ Properly copy filtered dataframe to avoid SettingWithCopyWarning
+    df_filtered = df[(df['timestamp'] >= start_date) & (df['timestamp'] <= max_date)].copy()
+
+    # ✅ Safe assignment using .loc
+    df_filtered.loc[:, 'tags'] = df_filtered['tags'].astype(str).fillna('')
     df_filtered['tags'] = df_filtered['tags'].str.split(',')
+
     df_exploded = df_filtered.explode('tags')
     df_exploded['tags'] = df_exploded['tags'].str.strip()
     df_exploded['year_month'] = df_exploded['timestamp'].dt.to_period('Y').astype(str)
@@ -49,6 +53,7 @@ def preprocess_csv():
     lang_counts = df_exploded.groupby(['year_month', 'tags']).size().reset_index(name='count')
     top_languages = lang_counts.groupby('tags')['count'].sum().nlargest(30).index
     df_top = lang_counts[lang_counts['tags'].isin(top_languages)]
+
     pivot_df = df_top.pivot(index='year_month', columns='tags', values='count').fillna(0)
     row_totals = pivot_df.sum(axis=1)
     pivot_df = pivot_df.div(row_totals, axis=0) * 100
